@@ -9,61 +9,64 @@ export default function HomePage() {
   const nav = useNavigate();
   const [params] = useSearchParams();
 
-  const initSearch = params.get('search') || '';
-  const initTag    = params.get('tag')    || '';
-
-  const [tab,    setTab]    = useState(user ? 'for-you' : 'latest');
-  const [sort,   setSort]   = useState('latest');
-  const [search, setSearch] = useState(initSearch);
-  const [tag,    setTag]    = useState(initTag);
-  const [posts,  setPosts]  = useState([]);
-  const [hasMore,setHasMore]= useState(false);
-  const [loading,setLoading]= useState(true);
-  const [loadingMore, setLM]= useState(false);
-  const [tags,   setTags]   = useState([]);
+  const [tab,     setTab]    = useState('latest');
+  const [search,  setSearch] = useState(params.get('search') || '');
+  const [tag,     setTag]    = useState(params.get('tag') || '');
+  const [posts,   setPosts]  = useState([]);
+  const [hasMore, setHasMore]= useState(false);
+  const [loading, setLoading]= useState(true);
+  const [loadingMore, setLM] = useState(false);
+  const [tags,    setTags]   = useState([]);
+  const [error,   setError]  = useState('');
 
   useEffect(() => {
     api.get('/tags').then(setTags).catch(() => {});
   }, []);
 
-  const fetch = useCallback(async (skip = 0, append = false) => {
+  const loadFeed = useCallback(async (skip = 0, append = false) => {
     if (skip === 0) setLoading(true); else setLM(true);
+    setError('');
     try {
       let data;
-      if (tab === 'following' && user) {
-        data = await api.get(`/posts/following?skip=${skip}`, token);
+      if (tab === 'following') {
+        if (!user || !token) {
+          setPosts([]); setHasMore(false);
+          setLoading(false); setLM(false);
+          return;
+        }
+        data = await api.get('/posts/following?skip=' + skip, token);
       } else {
-        const q = new URLSearchParams({ skip, sort });
+        const sortParam = tab === 'popular' ? 'popular' : 'latest';
+        const q = new URLSearchParams({ skip, sort: sortParam });
         if (search) q.set('search', search);
         if (tag)    q.set('tag', tag);
-        data = await api.get(`/posts?${q}`);
+        data = await api.get('/posts?' + q);
       }
-      setPosts(p => append ? [...p, ...data.posts] : data.posts);
-      setHasMore(data.hasMore);
-    } finally { setLoading(false); setLM(false); }
-  }, [tab, sort, search, tag, token, user]);
+      setPosts(p => append ? [...p, ...(data.posts || [])] : (data.posts || []));
+      setHasMore(!!data.hasMore);
+    } catch (e) {
+      setError(e.message || 'Failed to load posts');
+      if (!append) setPosts([]);
+      setHasMore(false);
+    } finally {
+      setLoading(false);
+      setLM(false);
+    }
+  }, [tab, search, tag, token, user]);
 
-  useEffect(() => { fetch(0, false); }, [fetch]);
+  useEffect(() => { loadFeed(0, false); }, [loadFeed]);
 
-  // Sync URL params
   useEffect(() => {
-    const s = params.get('search') || '';
-    const t = params.get('tag')    || '';
-    setSearch(s); setTag(t);
+    setSearch(params.get('search') || '');
+    setTag(params.get('tag') || '');
   }, [params]);
 
   const TABS = user
-    ? [['for-you','✨ For You'],['latest','🕒 Latest'],['following','👥 Following'],['popular','🔥 Popular']]
+    ? [['latest','🕒 Latest'],['following','👥 Following'],['popular','🔥 Popular']]
     : [['latest','🕒 Latest'],['popular','🔥 Popular']];
-
-  const handleTabChange = (t) => {
-    setTab(t);
-    if (t === 'popular') setSort('popular'); else setSort('latest');
-  };
 
   return (
     <div style={{ paddingTop: 'var(--nav-h)' }}>
-      {/* Hero */}
       <div className="hero">
         <div className="hero__inner">
           <h1>Stay <em>curious</em>.<br/>Read deeply.</h1>
@@ -77,9 +80,8 @@ export default function HomePage() {
           {tags.length > 0 && (
             <div className="hero__tags" style={{ marginTop: 20 }}>
               {tags.slice(0, 10).map(t => (
-                <button
-                  key={t.tag}
-                  className={`tag-chip tag-chip--clickable${tag === t.tag ? ' tag-chip--active' : ''}`}
+                <button key={t.tag}
+                  className={'tag-chip tag-chip--clickable' + (tag === t.tag ? ' tag-chip--active' : '')}
                   onClick={() => { setTag(tag === t.tag ? '' : t.tag); setSearch(''); }}
                 >
                   # {t.tag} <span style={{ opacity: .6, fontSize: '.7rem' }}>{t.count}</span>
@@ -91,47 +93,52 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Content */}
       <div className="container feed-layout">
         <div>
           {(search || tag) && (
             <div style={{ marginBottom: 20 }}>
               <div className="alert alert--info">
-                {search && <>Search: <strong>"{search}"</strong>{tag && ' · '}</>}
+                {search && <><strong>"{search}"</strong>{tag && ' · '}</>}
                 {tag && <>Tag: <strong>#{tag}</strong></>}
-                <button
-                  style={{ marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '.85rem' }}
-                  onClick={() => { setSearch(''); setTag(''); nav('/'); }}
-                >✕ Clear filters</button>
+                <button style={{ marginLeft: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: '.85rem' }}
+                  onClick={() => { setSearch(''); setTag(''); nav('/'); }}>✕ Clear</button>
               </div>
             </div>
           )}
 
           <div className="feed-tabs">
             {TABS.map(([id, label]) => (
-              <button key={id} className={`feed-tab${tab===id?' feed-tab--active':''}`} onClick={() => handleTabChange(id)}>
+              <button key={id} className={'feed-tab' + (tab === id ? ' feed-tab--active' : '')} onClick={() => setTab(id)}>
                 {label}
               </button>
             ))}
           </div>
+
+          {error && (
+            <div className="alert alert--error" style={{ marginBottom: 20 }}>
+              {error}&nbsp;
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontWeight: 600 }}
+                onClick={() => loadFeed(0, false)}>Retry</button>
+            </div>
+          )}
 
           {loading ? (
             <div className="page-loader"><div className="spinner spinner--lg" /></div>
           ) : posts.length === 0 ? (
             <div className="empty">
               <div className="empty__icon">📭</div>
-              <h3>Nothing here yet</h3>
-              <p>{tab === 'following' ? "Follow some authors to see their posts here." : "Be the first to publish something!"}</p>
-              {user && <button className="btn btn--primary" onClick={() => nav('/write')}>Write a story</button>}
+              <h3>{tab === 'following' ? 'Your following feed is empty' : 'Nothing here yet'}</h3>
+              <p>{tab === 'following' ? 'Follow some authors to see their posts here.' : tag ? 'No posts with this tag yet.' : 'Be the first to publish something!'}</p>
+              {user && tab !== 'following' && <button className="btn btn--primary" onClick={() => nav('/write')}>Write a story</button>}
             </div>
           ) : (
             <>
               {posts.map((p, i) => (
-                <PostCard key={p._id} post={p} style={{ animationDelay: `${Math.min(i, 6) * 60}ms` }} />
+                <PostCard key={p._id} post={p} style={{ animationDelay: Math.min(i, 6) * 60 + 'ms' }} />
               ))}
               {hasMore && (
                 <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                  <button className="btn btn--ghost" onClick={() => fetch(posts.length, true)} disabled={loadingMore}>
+                  <button className="btn btn--ghost" onClick={() => loadFeed(posts.length, true)} disabled={loadingMore}>
                     {loadingMore ? <span className="spinner" /> : 'Load more stories'}
                   </button>
                 </div>
@@ -140,22 +147,23 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Sidebar */}
         <aside className="sidebar">
           <div className="sidebar__card">
             <div className="sidebar__title">Trending Tags</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {tags.slice(0, 12).map(t => (
-                <button key={t.tag} className={`tag-chip tag-chip--clickable${tag===t.tag?' tag-chip--active':''}`}
-                  onClick={() => { setTag(tag===t.tag?'':t.tag); nav('/'); }}
-                >
-                  #{t.tag}
-                </button>
-              ))}
+              {tags.length === 0
+                ? <span style={{ fontSize: '.8rem', color: 'var(--text3)' }}>No tags yet</span>
+                : tags.slice(0, 12).map(t => (
+                  <button key={t.tag} className={'tag-chip tag-chip--clickable' + (tag === t.tag ? ' tag-chip--active' : '')}
+                    onClick={() => { setTag(tag === t.tag ? '' : t.tag); nav('/'); }}>
+                    #{t.tag}
+                  </button>
+                ))
+              }
             </div>
           </div>
 
-          {!user && (
+          {!user ? (
             <div className="sidebar__card">
               <div className="sidebar__title">Join WriteStack</div>
               <p style={{ fontSize: '.875rem', color: 'var(--text2)', marginBottom: 14, lineHeight: 1.5 }}>
@@ -164,6 +172,15 @@ export default function HomePage() {
               <button className="btn btn--green" style={{ width: '100%', justifyContent: 'center' }} onClick={() => nav('/auth?mode=register')}>
                 Create free account
               </button>
+            </div>
+          ) : (
+            <div className="sidebar__card">
+              <div className="sidebar__title">Quick Actions</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <button className="btn btn--green btn--sm" style={{ justifyContent: 'center' }} onClick={() => nav('/write')}>✏️ Write a story</button>
+                <button className="btn btn--ghost btn--sm" style={{ justifyContent: 'center' }} onClick={() => nav('/import')}>📥 Import article</button>
+                <button className="btn btn--ghost btn--sm" style={{ justifyContent: 'center' }} onClick={() => nav('/dashboard')}>📊 Dashboard</button>
+              </div>
             </div>
           )}
         </aside>

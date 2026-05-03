@@ -73,14 +73,13 @@ router.post('/', auth, async (req, res) => {
   const { title, content, subtitle, coverImage, tags, status } = req.body;
   if (!title?.trim() || !content?.trim()) return res.status(400).json({ message: 'Title and content required' });
   try {
-    const user = await User.findById(req.user.id).select('username');
     const post = await Post.create({
       title: title.trim(), content: content.trim(),
       subtitle: subtitle?.trim() || '',
       coverImage: coverImage?.trim() || '',
       tags: (tags || []).slice(0, 5).map(t => t.toLowerCase().trim()).filter(Boolean),
       author: req.user.id,
-      authorName: user.username,
+      authorName: req.user.username,
       status: status || 'published',
     });
     res.status(201).json(post);
